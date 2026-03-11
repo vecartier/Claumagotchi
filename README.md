@@ -1,5 +1,9 @@
 # Claumagotchi
 
+<p align="center">
+  <img src="screenshot.png" alt="Claumagotchi" width="280">
+</p>
+
 A Tamagotchi-style desktop companion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). It floats above your windows and shows you what Claude is doing across all your sessions — thinking, done, or waiting for permission. You can approve or deny tool requests directly from the widget.
 
 ## Requirements
