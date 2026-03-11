@@ -1,0 +1,4 @@
+.build/
+ClawGotchi.app/
+.DS_Store
+.swiftpm/
