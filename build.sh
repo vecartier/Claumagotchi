@@ -15,21 +15,25 @@ echo "Creating app bundle..."
 mkdir -p "$APP_DIR" "$RESOURCES_DIR"
 cp "$BINARY" "$APP_DIR/"
 
-# Generate app icon from screenshot if iconutil is available
-if [ -f "screenshot.png" ] && command -v iconutil &>/dev/null; then
+# Generate app icon from icon.png (transparent, no background)
+if [ -f "icon.png" ] && command -v iconutil &>/dev/null; then
     ICONSET="/tmp/claumagotchi-iconset.iconset"
     rm -rf "$ICONSET"
     mkdir -p "$ICONSET"
-    sips -z 16 16 screenshot.png --out "$ICONSET/icon_16x16.png" &>/dev/null
-    sips -z 32 32 screenshot.png --out "$ICONSET/icon_16x16@2x.png" &>/dev/null
-    sips -z 32 32 screenshot.png --out "$ICONSET/icon_32x32.png" &>/dev/null
-    sips -z 64 64 screenshot.png --out "$ICONSET/icon_32x32@2x.png" &>/dev/null
-    sips -z 128 128 screenshot.png --out "$ICONSET/icon_128x128.png" &>/dev/null
-    sips -z 256 256 screenshot.png --out "$ICONSET/icon_128x128@2x.png" &>/dev/null
-    sips -z 256 256 screenshot.png --out "$ICONSET/icon_256x256.png" &>/dev/null
-    sips -z 512 512 screenshot.png --out "$ICONSET/icon_256x256@2x.png" &>/dev/null
-    sips -z 512 512 screenshot.png --out "$ICONSET/icon_512x512.png" &>/dev/null
-    sips -z 1024 1024 screenshot.png --out "$ICONSET/icon_512x512@2x.png" &>/dev/null
+    for s in 16 32 64 128 256 512 1024; do
+        sips -z $s $s icon.png --out "$ICONSET/tmp_${s}.png" &>/dev/null
+    done
+    cp "$ICONSET/tmp_16.png"   "$ICONSET/icon_16x16.png"
+    cp "$ICONSET/tmp_32.png"   "$ICONSET/icon_16x16@2x.png"
+    cp "$ICONSET/tmp_32.png"   "$ICONSET/icon_32x32.png"
+    cp "$ICONSET/tmp_64.png"   "$ICONSET/icon_32x32@2x.png"
+    cp "$ICONSET/tmp_128.png"  "$ICONSET/icon_128x128.png"
+    cp "$ICONSET/tmp_256.png"  "$ICONSET/icon_128x128@2x.png"
+    cp "$ICONSET/tmp_256.png"  "$ICONSET/icon_256x256.png"
+    cp "$ICONSET/tmp_512.png"  "$ICONSET/icon_256x256@2x.png"
+    cp "$ICONSET/tmp_512.png"  "$ICONSET/icon_512x512.png"
+    cp "$ICONSET/tmp_1024.png" "$ICONSET/icon_512x512@2x.png"
+    rm -f "$ICONSET"/tmp_*.png
     iconutil -c icns "$ICONSET" -o "$RESOURCES_DIR/AppIcon.icns"
     rm -rf "$ICONSET"
 fi
