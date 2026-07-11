@@ -107,6 +107,12 @@ enum KokoroVoiceCatalog {
         "z": "zh",   // Chinese
     ]
 
+    /// Returns true if Kokoro has voices for the given ISO 639-1 style code
+    /// (e.g. "en", "ru", "zh-Hans" — BCP-47 variants match by prefix).
+    static func supportsLanguage(_ isoCode: String) -> Bool {
+        kokoroLangToISO.values.contains { isoCode.hasPrefix($0) }
+    }
+
     /// Maps a BCP-47 locale string (e.g. "en-GB", "fr-FR") to a Kokoro single-letter lang code.
     /// Returns nil if the language is not supported by Kokoro — caller should default to "a".
     static func kokoroLangCode(fromSystemLocale locale: String) -> String? {

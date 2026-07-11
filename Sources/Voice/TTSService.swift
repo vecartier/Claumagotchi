@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import NaturalLanguage
 import os.log
 
 final class TTSService: ObservableObject, @unchecked Sendable {
@@ -23,6 +24,11 @@ final class TTSService: ObservableObject, @unchecked Sendable {
     private var currentVoice: String = "bm_daniel"
     private var currentLangCode: String = "b"
     var onKokoroReady: (() -> Void)?
+
+    // Apple state
+    private var currentAppleVoiceId: String = ""   // empty = automatic (legacy Ava / language match)
+    private var autoLanguageRouting: Bool = true
+    private let previewSynthesizer = AVSpeechSynthesizer()
 
     // MARK: - Logging
 
@@ -52,6 +58,7 @@ final class TTSService: ObservableObject, @unchecked Sendable {
 
     func stopSpeaking() {
         synthesizer.stopSpeaking(at: .immediate)
+        previewSynthesizer.stopSpeaking(at: .immediate)
         audioPlayer?.stop()
         audioPlayer = nil
         previewPlayer?.stop()
@@ -139,21 +146,64 @@ final class TTSService: ObservableObject, @unchecked Sendable {
         // KokoroService manages its own lifecycle — nothing to tear down here.
     }
 
+    // MARK: - Apple Voice Configuration
+
+    func setAppleVoice(_ voiceId: String) {
+        currentAppleVoiceId = voiceId
+        log("Apple: voice set to \(voiceId.isEmpty ? "auto" : voiceId)")
+    }
+
+    func setAutoLanguageRouting(_ enabled: Bool) {
+        autoLanguageRouting = enabled
+        log("Routing: auto language routing \(enabled ? "enabled" : "disabled")")
+    }
+
+    /// Preview an Apple system voice from Settings. Runs on an isolated
+    /// synthesizer and deliberately does NOT touch `isSpeaking`, so the menu
+    /// bar icon and LCD widget stay idle while auditioning voices.
+    func previewAppleVoice(text: String, voiceId: String) {
+        guard !text.isEmpty else { return }
+        log("Apple: preview(\(voiceId.isEmpty ? "auto" : voiceId)): \(text.prefix(80))")
+        previewSynthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = Self.resolveAppleVoice(preferredId: voiceId, languageHint: nil)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
+        utterance.pitchMultiplier = 1.05
+        previewSynthesizer.speak(utterance)
+    }
+
     // MARK: - TTS Dispatcher
 
     private func speak(_ text: String, provider: String = "apple") {
         guard !text.isEmpty else { return }
+        // Auto language routing: Kokoro only speaks its 9 catalog languages.
+        // When the text is in any other language (e.g. Russian), route it to
+        // a matching Apple system voice instead of producing gibberish.
+        let detectedLang = autoLanguageRouting ? Self.dominantLanguage(of: text) : nil
         switch provider {
         case "kokoro":
+            if let lang = detectedLang, !KokoroVoiceCatalog.supportsLanguage(lang) {
+                log("Routing: '\(lang)' not supported by Kokoro — using Apple system voice")
+                speakWithApple(text, languageHint: lang)
+                return
+            }
             guard kokoroAvailable else {
                 log("Kokoro unavailable — using Apple voice")
-                speakWithAva(text)
+                speakWithApple(text, languageHint: detectedLang)
                 return
             }
             speakWithKokoro(text)
         default:
-            speakWithAva(text)
+            speakWithApple(text, languageHint: detectedLang)
         }
+    }
+
+    /// Detect the dominant language of the text as an ISO 639-1 style code
+    /// (e.g. "ru", "en", "zh-Hans"). Returns nil when detection is inconclusive.
+    static func dominantLanguage(of text: String) -> String? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(text.prefix(400)))
+        return recognizer.dominantLanguage?.rawValue
     }
 
     // MARK: - Kokoro Path
@@ -174,7 +224,7 @@ final class TTSService: ObservableObject, @unchecked Sendable {
                     guard let self else { return }
                     self.log("Kokoro: synthesis failed — \(error.localizedDescription) — falling back to Apple")
                     self.isSpeaking = false
-                    self.speakWithAva(text)
+                    self.speakWithApple(text)
                 }
             }
         }
@@ -203,17 +253,13 @@ final class TTSService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Apple TTS Path
 
-    private func speakWithAva(_ text: String) {
+    private func speakWithApple(_ text: String, languageHint: String? = nil) {
         guard !text.isEmpty else { return }
         log("speaking with Apple: \(text.prefix(200))")
         if isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
 
         let utterance = AVSpeechUtterance(string: text)
-        if let premium = AVSpeechSynthesisVoice(identifier: "com.apple.voice.premium.en-US.Ava") {
-            utterance.voice = premium
-        } else {
-            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        }
+        utterance.voice = Self.resolveAppleVoice(preferredId: currentAppleVoiceId, languageHint: languageHint)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
         utterance.pitchMultiplier = 1.05
 
@@ -224,6 +270,36 @@ final class TTSService: ObservableObject, @unchecked Sendable {
         synthesizer.delegate = speechDelegate
         isSpeaking = true
         synthesizer.speak(utterance)
+    }
+
+    /// Pick the Apple system voice to speak with.
+    /// 1. The user-chosen voice — unless it clashes with the routed language.
+    /// 2. The best-quality installed voice for the routed language.
+    /// 3. The legacy default (premium Ava, then plain en-US).
+    static func resolveAppleVoice(preferredId: String, languageHint: String?) -> AVSpeechSynthesisVoice? {
+        let base = languageHint.map { String($0.prefix(2)) }
+        if !preferredId.isEmpty, let chosen = AVSpeechSynthesisVoice(identifier: preferredId),
+           base == nil || chosen.language.hasPrefix(base!) {
+            return chosen
+        }
+        if let base {
+            let candidates = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(base) }
+            if let best = candidates.max(by: { qualityRank($0) < qualityRank($1) }) {
+                return best
+            }
+        }
+        if let premium = AVSpeechSynthesisVoice(identifier: "com.apple.voice.premium.en-US.Ava") {
+            return premium
+        }
+        return AVSpeechSynthesisVoice(language: "en-US")
+    }
+
+    private static func qualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
+        switch voice.quality {
+        case .premium: return 2
+        case .enhanced: return 1
+        default: return 0
+        }
     }
 }
 
