@@ -145,6 +145,18 @@ final class ClaudeMonitor: ObservableObject {
     @Published var ttsProvider: String = "kokoro" {
         didSet { UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider") }
     }
+    @Published var appleVoiceId: String = "" {
+        didSet {
+            UserDefaults.standard.set(appleVoiceId, forKey: "appleVoiceId")
+            ttsService.setAppleVoice(appleVoiceId)
+        }
+    }
+    @Published var autoLanguageRouting: Bool = true {
+        didSet {
+            UserDefaults.standard.set(autoLanguageRouting, forKey: "autoLanguageRouting")
+            ttsService.setAutoLanguageRouting(autoLanguageRouting)
+        }
+    }
 
     // MARK: - Hotkey Bindings
 
@@ -232,6 +244,8 @@ final class ClaudeMonitor: ObservableObject {
         }
         voiceOver = UserDefaults.standard.bool(forKey: "voiceOver")
         ttsProvider = UserDefaults.standard.string(forKey: "ttsProvider") ?? "kokoro"
+        appleVoiceId = UserDefaults.standard.string(forKey: "appleVoiceId") ?? ""
+        autoLanguageRouting = UserDefaults.standard.object(forKey: "autoLanguageRouting") as? Bool ?? true
         kokoroLangCode = UserDefaults.standard.string(forKey: "kokoroLangCode") ?? "b"
         kokoroVoice = UserDefaults.standard.string(forKey: "kokoroVoice") ?? "bm_daniel"
         whisperModelSize = UserDefaults.standard.string(forKey: "whisperModelSize") ?? "small"
@@ -243,6 +257,8 @@ final class ClaudeMonitor: ObservableObject {
         if let v = UserDefaults.standard.string(forKey: "hotkeyChar_mute") { hotkeyMute = v }
         isActive = UserDefaults.standard.object(forKey: "isActive") as? Bool ?? true
         voiceService.ttsService = ttsService
+        ttsService.setAppleVoice(appleVoiceId)
+        ttsService.setAutoLanguageRouting(autoLanguageRouting)
         wireVoiceStateBindings()
         wireVoiceCommands()
 

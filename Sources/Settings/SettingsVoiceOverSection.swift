@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct SettingsVoiceOverSection: View {
     @EnvironmentObject var monitor: ClaudeMonitor
@@ -15,6 +16,21 @@ struct SettingsVoiceOverSection: View {
                 if b.code == "a" { return false }
                 return a.name < b.name
             }
+    }
+
+    /// All installed Apple system voices, sorted by language then name so the
+    /// menu groups languages together.
+    private var appleVoices: [AVSpeechSynthesisVoice] {
+        AVSpeechSynthesisVoice.speechVoices()
+            .sorted { a, b in
+                if a.language != b.language { return a.language < b.language }
+                return a.name < b.name
+            }
+    }
+
+    private func applePreviewText(for voiceId: String) -> String {
+        let lang = AVSpeechSynthesisVoice(identifier: voiceId)?.language ?? "en-US"
+        return lang.hasPrefix("ru") ? "Привет! Вот так я звучу." : "Hi, this is how I sound."
     }
 
     var body: some View {
@@ -65,6 +81,38 @@ struct SettingsVoiceOverSection: View {
                     .help("Preview voice")
                 }
             }
+
+            if monitor.ttsProvider == "apple" || monitor.autoLanguageRouting {
+                HStack {
+                    Picker("Apple Voice", selection: $monitor.appleVoiceId) {
+                        Text("Automatic").tag("")
+                        ForEach(appleVoices, id: \.identifier) { voice in
+                            Text("\(voice.name) — \(voice.language)").tag(voice.identifier)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Button {
+                        monitor.ttsService.previewAppleVoice(
+                            text: applePreviewText(for: monitor.appleVoiceId),
+                            voiceId: monitor.appleVoiceId
+                        )
+                    } label: {
+                        Image(systemName: "play.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Preview voice")
+                }
+            }
+
+            Toggle(isOn: $monitor.autoLanguageRouting) {
+                Label("Auto Language Routing", systemImage: "globe")
+            }
+            .toggleStyle(.switch)
+
+            Text("Languages Kokoro can't speak (e.g. Russian) are read with a matching Apple system voice. Install more voices in System Settings → Accessibility → Spoken Content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
 
     }
